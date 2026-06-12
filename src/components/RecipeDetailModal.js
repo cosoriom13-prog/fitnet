@@ -1,7 +1,7 @@
 import { Modal, View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../context/AppContext';
-import translations from '../i18n/translations';
+import translations, { getIntensityLabel, getTimingLabel } from '../i18n/translations';
 
 export default function RecipeDetailModal({ recipe, visible, onClose }) {
   const { theme, language } = useApp();
@@ -40,7 +40,7 @@ export default function RecipeDetailModal({ recipe, visible, onClose }) {
             {recipe.prepTime ? (
               <Text style={[styles.metaText, { color: theme.muted }]}>⏱ {recipe.prepTime}</Text>
             ) : recipe.timing ? (
-              <Text style={[styles.metaText, { color: theme.muted }]}>⏱ {recipe.timing}</Text>
+              <Text style={[styles.metaText, { color: theme.muted }]}>⏱ {getTimingLabel(recipe.timing, language)}</Text>
             ) : null}
             {recipe.difficulty ? (
               <View style={[styles.difficultyBadge, { borderColor: theme.accent }]}>
@@ -48,7 +48,7 @@ export default function RecipeDetailModal({ recipe, visible, onClose }) {
               </View>
             ) : recipe.intensity_tag ? (
               <View style={[styles.difficultyBadge, { borderColor: theme.accent }]}>
-                <Text style={[styles.difficultyText, { color: theme.accent }]}>{recipe.intensity_tag}</Text>
+                <Text style={[styles.difficultyText, { color: theme.accent }]}>{getIntensityLabel(recipe.intensity_tag, language)}</Text>
               </View>
             ) : null}
           </View>

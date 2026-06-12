@@ -3,11 +3,12 @@ import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { SPORTS } from '../data/recipes';
 import { useApp } from '../context/AppContext';
 import { addRecentRecipe } from '../utils/storage';
-import { getSportName } from '../i18n/translations';
+import translations, { getSportName, getIntensityLabel, getTimingLabel } from '../i18n/translations';
 import RecipeDetailModal from './RecipeDetailModal';
 
 export default function RecipeCard({ recipe }) {
   const { theme, language, refreshRecentRecipes } = useApp();
+  const t = translations[language];
   const [modalVisible, setModalVisible] = useState(false);
   const sport = SPORTS.find(s => s.id === recipe.sport);
 
@@ -46,7 +47,7 @@ export default function RecipeCard({ recipe }) {
           {recipe.calories != null ? (
             <>
               <StatChip icon="🔥" value={`${recipe.calories} kcal`} color={theme.muted} />
-              <StatChip icon="💪" value={`${recipe.protein}g protein`} color={theme.muted} />
+              <StatChip icon="💪" value={`${recipe.protein}g ${t.protein.toLowerCase()}`} color={theme.muted} />
               {recipe.prepTime ? <StatChip icon="⏱" value={recipe.prepTime} color={theme.muted} /> : null}
             </>
           ) : (
@@ -54,11 +55,11 @@ export default function RecipeCard({ recipe }) {
               {recipe.intensity_tag ? (
                 <StatChip
                   icon={recipe.intensity_tag === 'hard' ? '🔴' : recipe.intensity_tag === 'moderate' ? '🟡' : '🟢'}
-                  value={recipe.intensity_tag}
+                  value={getIntensityLabel(recipe.intensity_tag, language)}
                   color={theme.muted}
                 />
               ) : null}
-              {recipe.timing ? <StatChip icon="⏱" value={recipe.timing} color={theme.muted} /> : null}
+              {recipe.timing ? <StatChip icon="⏱" value={getTimingLabel(recipe.timing, language)} color={theme.muted} /> : null}
             </>
           )}
         </View>

@@ -155,4 +155,22 @@ export function getSportName(sportId, language) {
   return t[key] ?? sportId;
 }
 
+const INTENSITY_LABELS = {
+  en: { easy: 'Easy', moderate: 'Moderate', hard: 'Hard' },
+  es: { easy: 'Fácil', moderate: 'Moderado', hard: 'Intenso' },
+};
+
+const TIMING_LABELS = {
+  en: { pre: 'Pre', post: 'Post', recovery: 'Recovery', anytime: 'Anytime' },
+  es: { pre: 'Pre', post: 'Post', recovery: 'Recuperación', anytime: 'Siempre' },
+};
+
+export function getIntensityLabel(tag, language) {
+  return (INTENSITY_LABELS[language] ?? INTENSITY_LABELS.en)[tag] ?? tag;
+}
+
+export function getTimingLabel(timing, language) {
+  return (TIMING_LABELS[language] ?? TIMING_LABELS.en)[timing] ?? timing;
+}
+
 export default translations;
