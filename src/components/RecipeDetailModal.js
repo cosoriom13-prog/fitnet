@@ -2,6 +2,7 @@ import { Modal, View, Text, ScrollView, Pressable, StyleSheet } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../context/AppContext';
 import translations, { getIntensityLabel, getTimingLabel } from '../i18n/translations';
+import MacroBar from './MacroBar';
 
 export default function RecipeDetailModal({ recipe, visible, onClose }) {
   const { theme, language } = useApp();
@@ -35,6 +36,8 @@ export default function RecipeDetailModal({ recipe, visible, onClose }) {
               <MacroPill label={t.fat} value={`${recipe.fat}`} unit="g" theme={theme} />
             </View>
           )}
+
+          {recipe.calories != null ? <MacroBar recipe={recipe} theme={theme} /> : null}
 
           <View style={styles.metaRow}>
             {recipe.prepTime ? (

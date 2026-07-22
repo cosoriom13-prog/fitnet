@@ -173,4 +173,31 @@ export function getTimingLabel(timing, language) {
   return (TIMING_LABELS[language] ?? TIMING_LABELS.en)[timing] ?? timing;
 }
 
+// Indexed by Date#getDay(): 0 = Sunday … 6 = Saturday.
+const MOTIVATIONAL_PHRASES = {
+  en: [
+    'Recover well, rise stronger. 🌱',
+    'Start your week strong. 💪',
+    'Small steps, big gains today.',
+    'Halfway there — keep pushing!',
+    'Fuel it right, feel it right.',
+    'Almost the weekend — finish strong!',
+    'Momentum builds all week long.',
+  ],
+  es: [
+    'Descansa bien, levántate más fuerte. 🌱',
+    'Empieza la semana con fuerza. 💪',
+    'Pasos pequeños, grandes logros hoy.',
+    'Ya vas a la mitad — ¡sigue así!',
+    'Aliméntate bien, siéntete mejor.',
+    'Casi el fin de semana — ¡a por todo!',
+    'El impulso crece toda la semana.',
+  ],
+};
+
+export function getMotivationalPhrase(language) {
+  const phrases = MOTIVATIONAL_PHRASES[language] ?? MOTIVATIONAL_PHRASES.en;
+  return phrases[new Date().getDay()];
+}
+
 export default translations;

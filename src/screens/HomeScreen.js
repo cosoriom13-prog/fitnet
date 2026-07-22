@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,20 +6,31 @@ import {
   Pressable,
   Alert,
   StyleSheet,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import { loadUser, clearUser } from '../utils/storage';
 import { CATALOG } from '../data/catalog';
+import { SPORTS } from '../data/recipes';
 import { useApp } from '../context/AppContext';
-import translations from '../i18n/translations';
+import translations, { getSportName, getMotivationalPhrase } from '../i18n/translations';
 import RecipeCard from '../components/RecipeCard';
 
 export default function HomeScreen({ navigation }) {
   const { isDark, theme, language } = useApp();
   const t = translations[language];
   const [user, setUser] = useState(null);
+  const listFade = useRef(new Animated.Value(0)).current;
+  const listSlide = useRef(new Animated.Value(20)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(listFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.timing(listSlide, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]).start();
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -58,18 +69,33 @@ export default function HomeScreen({ navigation }) {
   };
 
   const firstName = user?.name?.split(' ')[0] ?? null;
+  const currentSport = SPORTS.find(s => s.id === user?.sport);
+  const motivationalPhrase = getMotivationalPhrase(language);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]} edges={['top']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
       <View style={styles.header}>
-        <View>
-          <Text style={[styles.greeting, { color: theme.text }]}>
-            {firstName ? t.greeting(firstName) : t.appName}
-          </Text>
+        <View style={styles.headerText}>
+          <View style={styles.greetingRow}>
+            <Text style={[styles.greeting, { color: theme.text }]}>
+              {firstName ? t.greeting(firstName) : t.appName}
+            </Text>
+            {currentSport && (
+              <View style={[styles.sportPill, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <Text style={styles.sportPillIcon}>{currentSport.icon}</Text>
+                <Text style={[styles.sportPillText, { color: theme.muted }]}>
+                  {getSportName(currentSport.id, language)}
+                </Text>
+              </View>
+            )}
+          </View>
           <Text style={[styles.subtitle, { color: theme.subtext }]}>
             {t.recipesReady(filteredRecipes.length)}
+          </Text>
+          <Text style={[styles.motivational, { color: theme.accent }]}>
+            {motivationalPhrase}
           </Text>
         </View>
         <View style={styles.headerButtons}>
@@ -90,13 +116,17 @@ export default function HomeScreen({ navigation }) {
         </View>
       </View>
 
-      <FlatList
-        data={filteredRecipes}
-        keyExtractor={r => r.id}
-        renderItem={({ item }) => <RecipeCard recipe={item} />}
-        contentContainerStyle={styles.recipeList}
-        showsVerticalScrollIndicator={false}
-      />
+      <Animated.View
+        style={{ flex: 1, opacity: listFade, transform: [{ translateY: listSlide }] }}
+      >
+        <FlatList
+          data={filteredRecipes}
+          keyExtractor={r => r.id}
+          renderItem={({ item }) => <RecipeCard recipe={item} />}
+          contentContainerStyle={styles.recipeList}
+          showsVerticalScrollIndicator={false}
+        />
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -111,8 +141,22 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 16,
   },
+  headerText: { flex: 1, paddingRight: 12 },
+  greetingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   greeting: { fontSize: 24, fontWeight: '800' },
   subtitle: { fontSize: 13, marginTop: 2 },
+  motivational: { fontFamily: 'Poppins_600SemiBold', fontSize: 16, marginTop: 4 },
+  sportPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  sportPillIcon: { fontSize: 12 },
+  sportPillText: { fontSize: 12, fontWeight: '600' },
   headerButtons: { flexDirection: 'row', gap: 8 },
   iconBtn: {
     width: 38,
