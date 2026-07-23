@@ -8,6 +8,7 @@ const CHECKINS_KEY = '@fitnet_checkins';
 const PROGRESS_PROFILE_KEY = '@fitnet_progress_profile';
 const PRS_KEY = '@fitnet_prs';
 const MEAL_PLANS_KEY = '@fitnet_meal_plans';
+const MEAL_REMINDERS_KEY = '@fitnet_meal_reminders';
 
 export async function saveUser(user) {
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -100,5 +101,19 @@ export async function saveMealPlanDay(dateKey, dayPlan) {
 
 export async function loadMealPlans() {
   const raw = await AsyncStorage.getItem(MEAL_PLANS_KEY);
+  return raw ? JSON.parse(raw) : {};
+}
+
+// Meal reminders are keyed by date string ('YYYY-MM-DD'), each value shaped
+// { breakfast: { hour, minute, notificationId } | null, lunch: ..., dinner: ..., snack: ... }.
+export async function saveMealReminderDay(dateKey, dayReminders) {
+  const all = await loadMealReminders();
+  const updated = { ...all, [dateKey]: dayReminders };
+  await AsyncStorage.setItem(MEAL_REMINDERS_KEY, JSON.stringify(updated));
+  return updated;
+}
+
+export async function loadMealReminders() {
+  const raw = await AsyncStorage.getItem(MEAL_REMINDERS_KEY);
   return raw ? JSON.parse(raw) : {};
 }

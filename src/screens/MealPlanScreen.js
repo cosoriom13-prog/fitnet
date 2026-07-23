@@ -1,12 +1,36 @@
 import { useState, useCallback, useMemo } from 'react';
-import { View, Text, Pressable, ScrollView, Modal, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ScrollView, Modal, Alert, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import { useApp } from '../context/AppContext';
-import { loadUser, loadMealPlans, saveMealPlanDay } from '../utils/storage';
+import WheelPicker from '../components/WheelPicker';
+import {
+  loadUser,
+  loadMealPlans,
+  saveMealPlanDay,
+  loadMealReminders,
+  saveMealReminderDay,
+} from '../utils/storage';
 import { CATALOG } from '../data/catalog';
 import translations from '../i18n/translations';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+if (Platform.OS === 'android') {
+  Notifications.setNotificationChannelAsync('meal-reminders', {
+    name: 'Meal Reminders',
+    importance: Notifications.AndroidImportance.DEFAULT,
+  });
+}
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -18,6 +42,22 @@ const MEAL_SLOTS = [
 ];
 
 const EMPTY_DAY_PLAN = { breakfast: [], lunch: [], dinner: [], snack: [] };
+const EMPTY_DAY_REMINDERS = { breakfast: null, lunch: null, dinner: null, snack: null };
+const DEFAULT_REMINDER_HOUR = { breakfast: 7, lunch: 12, dinner: 18, snack: 15 };
+
+const HOURS_12 = Array.from({ length: 12 }, (_, i) => i + 1);
+const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+
+function to24Hour(hour12, period) {
+  const hour = hour12 % 12;
+  return period === 'PM' ? hour + 12 : hour;
+}
+
+function formatReminderTime(hour24, minute) {
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
+}
 
 function formatDateKey(date) {
   const y = date.getFullYear();
@@ -79,7 +119,7 @@ function MealRecipeRow({ recipe, onRemove, theme, isLast }) {
   );
 }
 
-function MealSection({ slot, recipes, onAddPress, onRemove, theme }) {
+function MealSection({ slot, recipes, reminder, onAddPress, onRemove, onBellPress, theme }) {
   return (
     <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.mealSectionHeader}>
@@ -91,6 +131,13 @@ function MealSection({ slot, recipes, onAddPress, onRemove, theme }) {
           <Text style={[styles.addBtnText, { color: theme.accent }]}>+ Add recipe</Text>
         </Pressable>
       </View>
+
+      <Pressable onPress={onBellPress} hitSlop={6} style={styles.reminderRow}>
+        <Text style={[styles.bellIcon, { color: reminder ? theme.accent : theme.subtext }]}>🔔</Text>
+        <Text style={[styles.reminderText, { color: reminder ? theme.accent : theme.subtext }]}>
+          {reminder ? formatReminderTime(reminder.hour, reminder.minute) : 'Set reminder'}
+        </Text>
+      </Pressable>
 
       {recipes.length === 0 ? (
         <Text style={[styles.mealEmptyText, { color: theme.subtext }]}>No items yet</Text>
@@ -115,24 +162,33 @@ export default function MealPlanScreen() {
 
   const [user, setUser] = useState(null);
   const [mealPlans, setMealPlans] = useState({});
+  const [reminders, setReminders] = useState({});
   const [viewMonth, setViewMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [addModalSlot, setAddModalSlot] = useState(null);
+  const [reminderModalSlot, setReminderModalSlot] = useState(null);
+  const [pickerHour, setPickerHour] = useState(7);
+  const [pickerMinute, setPickerMinute] = useState('00');
+  const [pickerPeriod, setPickerPeriod] = useState('AM');
 
   useFocusEffect(
     useCallback(() => {
-      Promise.all([loadUser(), loadMealPlans()]).then(([savedUser, plans]) => {
-        setUser(savedUser);
-        setMealPlans(plans);
-      });
+      Promise.all([loadUser(), loadMealPlans(), loadMealReminders()]).then(
+        ([savedUser, plans, savedReminders]) => {
+          setUser(savedUser);
+          setMealPlans(plans);
+          setReminders(savedReminders);
+        }
+      );
     }, [])
   );
 
   const selectedDateKey = formatDateKey(selectedDate);
   const selectedPlan = mealPlans[selectedDateKey] ?? EMPTY_DAY_PLAN;
+  const selectedReminders = reminders[selectedDateKey] ?? EMPTY_DAY_REMINDERS;
 
   const calendarCells = useMemo(() => {
     const year = viewMonth.getFullYear();
@@ -189,6 +245,86 @@ export default function MealPlanScreen() {
     setMealPlans(updatedAll);
   };
 
+  const openReminderPicker = (slotKey) => {
+    const defaultHour24 = DEFAULT_REMINDER_HOUR[slotKey] ?? 12;
+    const period = defaultHour24 >= 12 ? 'PM' : 'AM';
+    const hour12 = defaultHour24 % 12 === 0 ? 12 : defaultHour24 % 12;
+    setPickerHour(hour12);
+    setPickerMinute('00');
+    setPickerPeriod(period);
+    setReminderModalSlot(slotKey);
+  };
+
+  const handleCancelReminder = async (slotKey) => {
+    const existing = selectedReminders[slotKey];
+    if (existing?.notificationId) {
+      await Notifications.cancelScheduledNotificationAsync(existing.notificationId);
+    }
+    const updatedDay = { ...selectedReminders, [slotKey]: null };
+    const updatedAll = await saveMealReminderDay(selectedDateKey, updatedDay);
+    setReminders(updatedAll);
+  };
+
+  const handleBellPress = (slotKey) => {
+    if (selectedReminders[slotKey]) {
+      handleCancelReminder(slotKey);
+    } else {
+      openReminderPicker(slotKey);
+    }
+  };
+
+  const handleSetReminder = async () => {
+    const slotKey = reminderModalSlot;
+    if (!slotKey) return;
+
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      Alert.alert(
+        'Notifications disabled',
+        'Enable notifications in your device settings to get meal prep reminders.'
+      );
+      return;
+    }
+
+    const hour24 = to24Hour(pickerHour, pickerPeriod);
+    const minute = Number(pickerMinute);
+    const targetDate = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate(),
+      hour24,
+      minute,
+      0
+    );
+
+    const existing = selectedReminders[slotKey];
+    if (existing?.notificationId) {
+      await Notifications.cancelScheduledNotificationAsync(existing.notificationId);
+    }
+
+    const slotLabel = MEAL_SLOTS.find(s => s.key === slotKey)?.label ?? 'meal';
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'FitNet',
+        body: `Time to prep your ${slotLabel.toLowerCase()}! 🍽️`,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: targetDate,
+      },
+    });
+
+    const updatedDay = { ...selectedReminders, [slotKey]: { hour: hour24, minute, notificationId } };
+    const updatedAll = await saveMealReminderDay(selectedDateKey, updatedDay);
+    setReminders(updatedAll);
+    setReminderModalSlot(null);
+  };
+
   const totals = useMemo(() => {
     const allRecipes = MEAL_SLOTS.flatMap(slot => resolveRecipes(selectedPlan[slot.key]));
     return allRecipes.reduce(
@@ -204,6 +340,7 @@ export default function MealPlanScreen() {
 
   const modalRecipes = user?.sport ? CATALOG.filter(r => r.sport === user.sport) : CATALOG;
   const modalSlotInfo = MEAL_SLOTS.find(s => s.key === addModalSlot);
+  const reminderSlotInfo = MEAL_SLOTS.find(s => s.key === reminderModalSlot);
   const selectedDateLabel = selectedDate.toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
@@ -254,8 +391,10 @@ export default function MealPlanScreen() {
             key={slot.key}
             slot={slot}
             recipes={resolveRecipes(selectedPlan[slot.key])}
+            reminder={selectedReminders[slot.key]}
             onAddPress={() => setAddModalSlot(slot.key)}
             onRemove={(recipeId) => handleRemoveRecipe(slot.key, recipeId)}
+            onBellPress={() => handleBellPress(slot.key)}
             theme={theme}
           />
         ))}
@@ -321,6 +460,65 @@ export default function MealPlanScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+
+      {/* REMINDER TIME PICKER MODAL */}
+      <Modal
+        visible={!!reminderModalSlot}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setReminderModalSlot(null)}
+      >
+        <SafeAreaView style={[styles.modalSafe, { backgroundColor: theme.bg }]} edges={['top', 'bottom']}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              Remind Me — {reminderSlotInfo?.label ?? ''}
+            </Text>
+            <Pressable
+              onPress={() => setReminderModalSlot(null)}
+              hitSlop={8}
+              style={[styles.modalClose, { backgroundColor: theme.border }]}
+            >
+              <Text style={[styles.modalCloseText, { color: theme.muted }]}>✕</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.timePickerBody}>
+            <Text style={[styles.timePickerHint, { color: theme.subtext }]}>
+              We'll remind you to prep this meal on {selectedDateLabel}.
+            </Text>
+
+            <View style={styles.timePickerRow}>
+              <View style={styles.timePickerColumn}>
+                <WheelPicker data={HOURS_12} selectedValue={pickerHour} onValueChange={setPickerHour} theme={theme} />
+              </View>
+              <Text style={[styles.timePickerColon, { color: theme.text }]}>:</Text>
+              <View style={styles.timePickerColumn}>
+                <WheelPicker data={MINUTES} selectedValue={pickerMinute} onValueChange={setPickerMinute} theme={theme} />
+              </View>
+              <View style={[styles.periodToggle, { borderColor: theme.border }]}>
+                {['AM', 'PM'].map(period => {
+                  const selected = pickerPeriod === period;
+                  return (
+                    <Pressable
+                      key={period}
+                      onPress={() => setPickerPeriod(period)}
+                      style={[styles.periodOption, selected && { backgroundColor: theme.accent }]}
+                    >
+                      <Text style={[styles.periodOptionText, { color: selected ? '#FFFFFF' : theme.muted }]}>
+                        {period}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <Pressable onPress={handleSetReminder} style={[styles.saveBtn, { backgroundColor: theme.accent }]}>
+              <Text style={styles.saveBtnText}>Set Reminder</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -379,6 +577,17 @@ const styles = StyleSheet.create({
   addBtnText: { fontSize: 12, fontWeight: '700' },
   mealEmptyText: { fontSize: 13, marginTop: 8 },
 
+  reminderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  bellIcon: { fontSize: 14 },
+  reminderText: { fontSize: 12, fontWeight: '600' },
+
   mealRecipeRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -432,4 +641,28 @@ const styles = StyleSheet.create({
   modalRecipeName: { fontSize: 15, fontWeight: '600' },
   modalRecipeCalories: { fontSize: 12, marginTop: 2 },
   checkmark: { fontSize: 18, fontWeight: '700' },
+
+  timePickerBody: { padding: 20 },
+  timePickerHint: { fontSize: 13, marginBottom: 20, textAlign: 'center' },
+  timePickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 24,
+  },
+  timePickerColumn: { width: 70 },
+  timePickerColon: { fontSize: 20, fontWeight: '700' },
+  periodToggle: {
+    flexDirection: 'column',
+    borderWidth: 1,
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginLeft: 8,
+  },
+  periodOption: { paddingHorizontal: 14, paddingVertical: 8, alignItems: 'center' },
+  periodOptionText: { fontSize: 13, fontWeight: '700' },
+
+  saveBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  saveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
 });
