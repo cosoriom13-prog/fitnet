@@ -5,6 +5,8 @@ const THEME_KEY = '@fitnet_theme';
 const LANGUAGE_KEY = '@fitnet_language';
 const RECENT_KEY = '@fitnet_recent_recipes';
 const CHECKINS_KEY = '@fitnet_checkins';
+const PROGRESS_PROFILE_KEY = '@fitnet_progress_profile';
+const PRS_KEY = '@fitnet_prs';
 
 export async function saveUser(user) {
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -61,5 +63,27 @@ export async function saveCheckIn(dateKey, entry) {
 
 export async function loadCheckIns() {
   const raw = await AsyncStorage.getItem(CHECKINS_KEY);
+  return raw ? JSON.parse(raw) : {};
+}
+
+export async function saveProgressProfile(profile) {
+  await AsyncStorage.setItem(PROGRESS_PROFILE_KEY, JSON.stringify(profile));
+}
+
+export async function loadProgressProfile() {
+  const raw = await AsyncStorage.getItem(PROGRESS_PROFILE_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+// Personal records are keyed by exercise id, each value a plain number.
+export async function savePR(exerciseKey, value) {
+  const all = await loadPRs();
+  const updated = { ...all, [exerciseKey]: value };
+  await AsyncStorage.setItem(PRS_KEY, JSON.stringify(updated));
+  return updated;
+}
+
+export async function loadPRs() {
+  const raw = await AsyncStorage.getItem(PRS_KEY);
   return raw ? JSON.parse(raw) : {};
 }
