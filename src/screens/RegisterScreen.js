@@ -129,7 +129,7 @@ export default function RegisterScreen({ navigation }) {
         sessionIntensity: selectedIntensity,
         recoveryPriority,
       });
-      navigation.replace('Home');
+      navigation.replace('Main');
       return;
     }
 

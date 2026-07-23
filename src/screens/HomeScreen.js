@@ -62,7 +62,7 @@ export default function HomeScreen({ navigation }) {
         style: 'destructive',
         onPress: async () => {
           await clearUser();
-          navigation.replace('Register');
+          navigation.getParent()?.replace('Register');
         },
       },
     ]);

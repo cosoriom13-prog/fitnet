@@ -13,8 +13,7 @@ import {
 import { loadUser } from './src/utils/storage';
 import { AppProvider, useApp } from './src/context/AppContext';
 import RegisterScreen from './src/screens/RegisterScreen';
-import HomeScreen from './src/screens/HomeScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
+import MainTabs from './src/navigation/MainTabs';
 
 const Stack = createNativeStackNavigator();
 
@@ -23,7 +22,7 @@ function AppContent() {
   const [initialRoute, setInitialRoute] = useState(null);
 
   useEffect(() => {
-    loadUser().then(user => setInitialRoute(user ? 'Home' : 'Register'));
+    loadUser().then(user => setInitialRoute(user ? 'Main' : 'Register'));
   }, []);
 
   const navTheme = {
@@ -67,12 +66,7 @@ function AppContent() {
           screenOptions={{ headerShown: false, animation: 'fade' }}
         >
           <Stack.Screen name="Register" component={RegisterScreen} />
-          <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen
-            name="Settings"
-            component={SettingsScreen}
-            options={{ animation: 'slide_from_right' }}
-          />
+          <Stack.Screen name="Main" component={MainTabs} />
         </Stack.Navigator>
       </NavigationContainer>
       <StatusBar style={isDark ? 'light' : 'dark'} />

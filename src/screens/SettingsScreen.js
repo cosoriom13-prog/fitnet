@@ -53,9 +53,13 @@ export default function SettingsScreen({ navigation }) {
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backBtn}>
-          <Text style={[styles.backIcon, { color: theme.accent }]}>‹</Text>
-        </Pressable>
+        {navigation.canGoBack() ? (
+          <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.backBtn}>
+            <Text style={[styles.backIcon, { color: theme.accent }]}>‹</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.backBtn} />
+        )}
         <Text style={[styles.headerTitle, { color: theme.text }]}>{t.settings}</Text>
         <View style={styles.headerSpacer} />
       </View>
