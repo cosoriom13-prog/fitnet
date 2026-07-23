@@ -22,6 +22,20 @@ export default function SettingsScreen({ navigation }) {
   const t = translations[language];
   const [user, setUser] = useState(null);
   const [sportModal, setSportModal] = useState(false);
+  const [frequencyModal, setFrequencyModal] = useState(false);
+  const [intensityModal, setIntensityModal] = useState(false);
+
+  const frequencies = [
+    { id: '1-2x/week', label: t.freq1to2 },
+    { id: '3-4x/week', label: t.freq3to4 },
+    { id: '5x+/week', label: t.freq5plus },
+  ];
+
+  const intensities = [
+    { id: 'easy', label: t.intensityEasy },
+    { id: 'moderate', label: t.intensityModerate },
+    { id: 'hard', label: t.intensityHard },
+  ];
 
   useFocusEffect(
     useCallback(() => {
@@ -31,6 +45,8 @@ export default function SettingsScreen({ navigation }) {
   );
 
   const currentSport = SPORTS.find(s => s.id === user?.sport);
+  const currentFrequency = frequencies.find(f => f.id === user?.trainingFrequency);
+  const currentIntensity = intensities.find(i => i.id === user?.sessionIntensity);
 
   const handleChangeSportPress = () => {
     Alert.alert(t.changeSportTitle, t.changeSportConfirm, [
@@ -43,6 +59,32 @@ export default function SettingsScreen({ navigation }) {
     setSportModal(false);
     if (user) {
       const updated = { ...user, sport: sportId };
+      await saveUser(updated);
+      setUser(updated);
+    }
+  };
+
+  const handleFrequencySelect = async (frequencyId) => {
+    setFrequencyModal(false);
+    if (user) {
+      const updated = { ...user, trainingFrequency: frequencyId };
+      await saveUser(updated);
+      setUser(updated);
+    }
+  };
+
+  const handleIntensitySelect = async (intensityId) => {
+    setIntensityModal(false);
+    if (user) {
+      const updated = { ...user, sessionIntensity: intensityId };
+      await saveUser(updated);
+      setUser(updated);
+    }
+  };
+
+  const handleRecoveryToggle = async (value) => {
+    if (user) {
+      const updated = { ...user, recoveryPriority: value };
       await saveUser(updated);
       setUser(updated);
     }
@@ -84,6 +126,53 @@ export default function SettingsScreen({ navigation }) {
               <Text style={[styles.rowChevron, { color: theme.accent }]}>›</Text>
             </View>
           </Pressable>
+        </View>
+
+        {/* Training Profile */}
+        <Text style={[styles.sectionLabel, { color: theme.muted }]}>{t.trainingProfile}</Text>
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Pressable
+            onPress={() => setFrequencyModal(true)}
+            style={[styles.row, styles.rowBorder, { borderBottomColor: theme.border }]}
+          >
+            <View style={styles.rowLeft}>
+              <Text style={[styles.rowTitle, { color: theme.text }]}>{t.changeFrequency}</Text>
+              <Text style={[styles.rowDesc, { color: theme.subtext }]}>{t.changeFrequencyDesc}</Text>
+            </View>
+            <View style={styles.rowRight}>
+              <Text style={[styles.rowRightText, { color: theme.muted }]}>
+                {currentFrequency?.label ?? ''}
+              </Text>
+              <Text style={[styles.rowChevron, { color: theme.accent }]}>›</Text>
+            </View>
+          </Pressable>
+          <Pressable
+            onPress={() => setIntensityModal(true)}
+            style={[styles.row, styles.rowBorder, { borderBottomColor: theme.border }]}
+          >
+            <View style={styles.rowLeft}>
+              <Text style={[styles.rowTitle, { color: theme.text }]}>{t.changeIntensity}</Text>
+              <Text style={[styles.rowDesc, { color: theme.subtext }]}>{t.changeIntensityDesc}</Text>
+            </View>
+            <View style={styles.rowRight}>
+              <Text style={[styles.rowRightText, { color: theme.muted }]}>
+                {currentIntensity?.label ?? ''}
+              </Text>
+              <Text style={[styles.rowChevron, { color: theme.accent }]}>›</Text>
+            </View>
+          </Pressable>
+          <View style={styles.row}>
+            <View style={styles.rowLeft}>
+              <Text style={[styles.rowTitle, { color: theme.text }]}>{t.recoveryPriorityLabel}</Text>
+              <Text style={[styles.rowDesc, { color: theme.subtext }]}>{t.recoveryPriorityDesc}</Text>
+            </View>
+            <Switch
+              value={!!user?.recoveryPriority}
+              onValueChange={handleRecoveryToggle}
+              trackColor={{ false: '#3A3A3C', true: theme.accent }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
         </View>
 
         {/* Appearance */}
@@ -188,6 +277,92 @@ export default function SettingsScreen({ navigation }) {
                   <Text style={[styles.sportRowName, { color: theme.text }]}>
                     {getSportName(s.id, language)}
                   </Text>
+                  {selected && (
+                    <Text style={[styles.checkmark, { color: theme.accent, marginLeft: 'auto' }]}>✓</Text>
+                  )}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Training Frequency Picker Modal */}
+      <Modal
+        visible={frequencyModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setFrequencyModal(false)}
+      >
+        <SafeAreaView style={[styles.modalSafe, { backgroundColor: theme.bg }]} edges={['top', 'bottom']}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t.changeFrequency}</Text>
+            <Pressable
+              onPress={() => setFrequencyModal(false)}
+              hitSlop={8}
+              style={[styles.modalClose, { backgroundColor: theme.border }]}
+            >
+              <Text style={[styles.modalCloseText, { color: theme.muted }]}>✕</Text>
+            </Pressable>
+          </View>
+          <ScrollView>
+            {frequencies.map((f) => {
+              const selected = user?.trainingFrequency === f.id;
+              return (
+                <Pressable
+                  key={f.id}
+                  onPress={() => handleFrequencySelect(f.id)}
+                  style={({ pressed }) => [
+                    styles.sportRow,
+                    { borderBottomColor: theme.border },
+                    selected && { backgroundColor: theme.accentDim },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.sportRowName, { color: theme.text }]}>{f.label}</Text>
+                  {selected && (
+                    <Text style={[styles.checkmark, { color: theme.accent, marginLeft: 'auto' }]}>✓</Text>
+                  )}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Session Intensity Picker Modal */}
+      <Modal
+        visible={intensityModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setIntensityModal(false)}
+      >
+        <SafeAreaView style={[styles.modalSafe, { backgroundColor: theme.bg }]} edges={['top', 'bottom']}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t.changeIntensity}</Text>
+            <Pressable
+              onPress={() => setIntensityModal(false)}
+              hitSlop={8}
+              style={[styles.modalClose, { backgroundColor: theme.border }]}
+            >
+              <Text style={[styles.modalCloseText, { color: theme.muted }]}>✕</Text>
+            </Pressable>
+          </View>
+          <ScrollView>
+            {intensities.map((i) => {
+              const selected = user?.sessionIntensity === i.id;
+              return (
+                <Pressable
+                  key={i.id}
+                  onPress={() => handleIntensitySelect(i.id)}
+                  style={({ pressed }) => [
+                    styles.sportRow,
+                    { borderBottomColor: theme.border },
+                    selected && { backgroundColor: theme.accentDim },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.sportRowName, { color: theme.text }]}>{i.label}</Text>
                   {selected && (
                     <Text style={[styles.checkmark, { color: theme.accent, marginLeft: 'auto' }]}>✓</Text>
                   )}
