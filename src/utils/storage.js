@@ -7,6 +7,7 @@ const RECENT_KEY = '@fitnet_recent_recipes';
 const CHECKINS_KEY = '@fitnet_checkins';
 const PROGRESS_PROFILE_KEY = '@fitnet_progress_profile';
 const PRS_KEY = '@fitnet_prs';
+const MEAL_PLANS_KEY = '@fitnet_meal_plans';
 
 export async function saveUser(user) {
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -85,5 +86,19 @@ export async function savePR(exerciseKey, value) {
 
 export async function loadPRs() {
   const raw = await AsyncStorage.getItem(PRS_KEY);
+  return raw ? JSON.parse(raw) : {};
+}
+
+// Meal plans are keyed by date string ('YYYY-MM-DD'), each value shaped
+// { breakfast: [recipeId], lunch: [recipeId], dinner: [recipeId], snack: [recipeId] }.
+export async function saveMealPlanDay(dateKey, dayPlan) {
+  const all = await loadMealPlans();
+  const updated = { ...all, [dateKey]: dayPlan };
+  await AsyncStorage.setItem(MEAL_PLANS_KEY, JSON.stringify(updated));
+  return updated;
+}
+
+export async function loadMealPlans() {
+  const raw = await AsyncStorage.getItem(MEAL_PLANS_KEY);
   return raw ? JSON.parse(raw) : {};
 }

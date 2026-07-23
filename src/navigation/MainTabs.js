@@ -2,6 +2,7 @@ import { Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import HomeScreen from '../screens/HomeScreen';
 import ExploreScreen from '../screens/ExploreScreen';
+import MealPlanScreen from '../screens/MealPlanScreen';
 import ProgressScreen from '../screens/ProgressScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 
@@ -10,6 +11,7 @@ const Tab = createBottomTabNavigator();
 const TAB_ICONS = {
   Home: '🏠',
   Explore: '🧭',
+  MealPlan: '📅',
   Progress: '📈',
   Settings: '⚙️',
 };
@@ -43,6 +45,7 @@ export default function MainTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Explore" component={ExploreScreen} />
+      <Tab.Screen name="MealPlan" component={MealPlanScreen} options={{ tabBarLabel: 'Meal Plan' }} />
       <Tab.Screen name="Progress" component={ProgressScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
