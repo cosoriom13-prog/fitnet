@@ -4,6 +4,7 @@ const USER_KEY = '@fitnet_user';
 const THEME_KEY = '@fitnet_theme';
 const LANGUAGE_KEY = '@fitnet_language';
 const RECENT_KEY = '@fitnet_recent_recipes';
+const CHECKINS_KEY = '@fitnet_checkins';
 
 export async function saveUser(user) {
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -48,4 +49,17 @@ export async function addRecentRecipe(recipe) {
 export async function loadRecentRecipes() {
   const raw = await AsyncStorage.getItem(RECENT_KEY);
   return raw ? JSON.parse(raw) : [];
+}
+
+// Check-ins are keyed by date string ('YYYY-MM-DD') so there's at most one per day.
+export async function saveCheckIn(dateKey, entry) {
+  const all = await loadCheckIns();
+  const updated = { ...all, [dateKey]: { ...entry, date: dateKey } };
+  await AsyncStorage.setItem(CHECKINS_KEY, JSON.stringify(updated));
+  return updated;
+}
+
+export async function loadCheckIns() {
+  const raw = await AsyncStorage.getItem(CHECKINS_KEY);
+  return raw ? JSON.parse(raw) : {};
 }
