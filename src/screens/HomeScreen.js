@@ -48,10 +48,18 @@ export default function HomeScreen({ navigation }) {
     const base = bySportAndGoal.length
       ? bySportAndGoal
       : CATALOG.filter(r => r.sport === user.sport);
-    return [...base].sort((a, b) =>
-      (a.intensity_tag === user.sessionIntensity ? 0 : 1) -
-      (b.intensity_tag === user.sessionIntensity ? 0 : 1)
-    );
+
+    const recoveryRank = (recipe) => {
+      if (!user.recoveryPriority) return 0;
+      return recipe.timing === 'post' || recipe.timing === 'recovery' ? 0 : 1;
+    };
+
+    return [...base].sort((a, b) => {
+      const recoveryDiff = recoveryRank(a) - recoveryRank(b);
+      if (recoveryDiff !== 0) return recoveryDiff;
+      return (a.intensity_tag === user.sessionIntensity ? 0 : 1) -
+        (b.intensity_tag === user.sessionIntensity ? 0 : 1);
+    });
   })();
 
   const handleLogout = () => {
