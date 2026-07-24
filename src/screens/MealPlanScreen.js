@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { View, Text, Pressable, ScrollView, Modal, Alert, Platform, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ScrollView, Modal, Alert, Platform, Share, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
@@ -12,6 +12,8 @@ import {
   saveMealPlanDay,
   loadMealReminders,
   saveMealReminderDay,
+  loadShoppingLists,
+  saveShoppingListWeek,
 } from '../utils/storage';
 import { CATALOG } from '../data/catalog';
 import translations from '../i18n/translations';
@@ -47,6 +49,51 @@ const DEFAULT_REMINDER_HOUR = { breakfast: 7, lunch: 12, dinner: 18, snack: 15 }
 
 const HOURS_12 = Array.from({ length: 12 }, (_, i) => i + 1);
 const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+
+const CATEGORY_ORDER = ['Proteins', 'Carbs', 'Vegetables', 'Dairy', 'Other'];
+const CATEGORY_KEYWORDS = [
+  {
+    name: 'Vegetables',
+    keywords: [
+      'spinach', 'broccoli', 'carrot', 'tomato', 'onion', 'garlic', 'pepper', 'lettuce',
+      'cucumber', 'kale', 'zucchini', 'mushroom', 'avocado', 'beet', 'corn', 'parsley',
+      'cilantro', 'celery', 'cabbage', 'asparagus', 'squash', 'eggplant', 'scallion',
+    ],
+  },
+  {
+    name: 'Proteins',
+    keywords: [
+      'chicken', 'beef', 'turkey', 'salmon', 'tuna', 'fish', 'shrimp', 'egg', 'tofu',
+      'protein', 'whey', 'pork', 'bacon', 'sausage', 'lentil', 'bean', 'chickpea',
+      'edamame', 'steak', 'shellfish',
+    ],
+  },
+  {
+    name: 'Carbs',
+    keywords: [
+      'rice', 'pasta', 'bread', 'oat', 'potato', 'quinoa', 'noodle', 'tortilla',
+      'cereal', 'bagel', 'granola', 'spaghetti', 'couscous', 'barley',
+    ],
+  },
+  {
+    name: 'Dairy',
+    keywords: ['milk', 'cheese', 'yogurt', 'butter', 'cream', 'parmesan', 'mozzarella', 'cheddar'],
+  },
+];
+
+function categorizeIngredient(text) {
+  const lower = text.toLowerCase();
+  const match = CATEGORY_KEYWORDS.find(cat => cat.keywords.some(kw => lower.includes(kw)));
+  return match ? match.name : 'Other';
+}
+
+// Returns the 7 dates (Monday–Sunday) of the week containing `date`.
+function getWeekDays(date) {
+  const day = date.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate() + diffToMonday);
+  return Array.from({ length: 7 }, (_, i) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i));
+}
 
 function to24Hour(hour12, period) {
   const hour = hour12 % 12;
@@ -173,14 +220,17 @@ export default function MealPlanScreen() {
   const [pickerHour, setPickerHour] = useState(7);
   const [pickerMinute, setPickerMinute] = useState('00');
   const [pickerPeriod, setPickerPeriod] = useState('AM');
+  const [shoppingLists, setShoppingLists] = useState({});
+  const [shoppingListVisible, setShoppingListVisible] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      Promise.all([loadUser(), loadMealPlans(), loadMealReminders()]).then(
-        ([savedUser, plans, savedReminders]) => {
+      Promise.all([loadUser(), loadMealPlans(), loadMealReminders(), loadShoppingLists()]).then(
+        ([savedUser, plans, savedReminders, savedShoppingLists]) => {
           setUser(savedUser);
           setMealPlans(plans);
           setReminders(savedReminders);
+          setShoppingLists(savedShoppingLists);
         }
       );
     }, [])
@@ -338,6 +388,69 @@ export default function MealPlanScreen() {
     );
   }, [selectedPlan]);
 
+  const weekDays = useMemo(() => getWeekDays(new Date()), []);
+  const weekKey = formatDateKey(weekDays[0]);
+  const weekLabel = `${weekDays[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekDays[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  const checkedMap = shoppingLists[weekKey] ?? {};
+
+  const groupedIngredients = useMemo(() => {
+    const seen = new Map();
+    weekDays.forEach(day => {
+      const dayPlan = mealPlans[formatDateKey(day)];
+      if (!dayPlan) return;
+      MEAL_SLOTS.forEach(slot => {
+        resolveRecipes(dayPlan[slot.key]).forEach(recipe => {
+          (recipe.ingredients ?? []).forEach(ing => {
+            const text = ing.trim();
+            const key = text.toLowerCase();
+            if (!seen.has(key)) seen.set(key, text);
+          });
+        });
+      });
+    });
+
+    const groups = {};
+    CATEGORY_ORDER.forEach(cat => { groups[cat] = []; });
+    Array.from(seen.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .forEach(([key, text]) => {
+        groups[categorizeIngredient(text)].push({ key, text });
+      });
+    return groups;
+  }, [weekDays, mealPlans]);
+
+  const totalIngredientCount = CATEGORY_ORDER.reduce((sum, cat) => sum + groupedIngredients[cat].length, 0);
+
+  const handleToggleIngredient = async (key) => {
+    const updatedChecked = { ...checkedMap };
+    if (updatedChecked[key]) {
+      delete updatedChecked[key];
+    } else {
+      updatedChecked[key] = true;
+    }
+    const updatedAll = await saveShoppingListWeek(weekKey, updatedChecked);
+    setShoppingLists(updatedAll);
+  };
+
+  const handleClearAllChecked = async () => {
+    const updatedAll = await saveShoppingListWeek(weekKey, {});
+    setShoppingLists(updatedAll);
+  };
+
+  const handleShareList = async () => {
+    const lines = CATEGORY_ORDER.flatMap(cat => {
+      const items = groupedIngredients[cat];
+      if (!items.length) return [];
+      return [`${cat}:`, ...items.map(i => `${checkedMap[i.key] ? '[x]' : '[ ]'} ${i.text}`), ''];
+    });
+    if (!lines.length) return;
+    try {
+      await Share.share({ message: `Shopping List (${weekLabel})\n\n${lines.join('\n').trim()}` });
+    } catch {
+      // user dismissed the share sheet — nothing to do
+    }
+  };
+
   const modalRecipes = user?.sport ? CATALOG.filter(r => r.sport === user.sport) : CATALOG;
   const modalSlotInfo = MEAL_SLOTS.find(s => s.key === addModalSlot);
   const reminderSlotInfo = MEAL_SLOTS.find(s => s.key === reminderModalSlot);
@@ -409,6 +522,20 @@ export default function MealPlanScreen() {
             <MacroStat label={t.fat} value={totals.fat} unit="g" theme={theme} />
           </View>
         </View>
+
+        {/* SHOPPING LIST */}
+        <Pressable
+          onPress={() => setShoppingListVisible(true)}
+          style={[styles.shoppingListBtn, { backgroundColor: theme.accent }]}
+        >
+          <Text style={styles.shoppingListBtnIcon}>🛒</Text>
+          <Text style={styles.shoppingListBtnText}>Shopping List</Text>
+          {totalIngredientCount > 0 && (
+            <View style={styles.shoppingListBadge}>
+              <Text style={styles.shoppingListBadgeText}>{totalIngredientCount}</Text>
+            </View>
+          )}
+        </Pressable>
       </ScrollView>
 
       {/* ADD RECIPE MODAL */}
@@ -517,6 +644,92 @@ export default function MealPlanScreen() {
               <Text style={styles.saveBtnText}>Set Reminder</Text>
             </Pressable>
           </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* SHOPPING LIST MODAL */}
+      <Modal
+        visible={shoppingListVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShoppingListVisible(false)}
+      >
+        <SafeAreaView style={[styles.modalSafe, { backgroundColor: theme.bg }]} edges={['top', 'bottom']}>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <View>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Shopping List</Text>
+              <Text style={[styles.shoppingListWeek, { color: theme.subtext }]}>{weekLabel}</Text>
+            </View>
+            <Pressable
+              onPress={() => setShoppingListVisible(false)}
+              hitSlop={8}
+              style={[styles.modalClose, { backgroundColor: theme.border }]}
+            >
+              <Text style={[styles.modalCloseText, { color: theme.muted }]}>✕</Text>
+            </Pressable>
+          </View>
+
+          <View style={[styles.shoppingListActions, { borderBottomColor: theme.border }]}>
+            <Pressable onPress={handleClearAllChecked} style={[styles.shoppingActionBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.shoppingActionText, { color: theme.muted }]}>Clear all</Text>
+            </Pressable>
+            <Pressable onPress={handleShareList} style={[styles.shoppingActionBtn, { backgroundColor: theme.accentDim, borderColor: theme.accent }]}>
+              <Text style={[styles.shoppingActionText, { color: theme.accent }]}>Share list</Text>
+            </Pressable>
+          </View>
+
+          {totalIngredientCount === 0 ? (
+            <View style={styles.shoppingEmptyState}>
+              <Text style={styles.shoppingEmptyEmoji}>🛒</Text>
+              <Text style={[styles.shoppingEmptyTitle, { color: theme.text }]}>Nothing planned this week</Text>
+              <Text style={[styles.shoppingEmptySubtitle, { color: theme.subtext }]}>
+                Add recipes to your meal plan to build a shopping list.
+              </Text>
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={styles.shoppingListScroll}>
+              {CATEGORY_ORDER.map(category => {
+                const items = groupedIngredients[category];
+                if (!items.length) return null;
+                return (
+                  <View key={category} style={styles.shoppingCategory}>
+                    <Text style={[styles.shoppingCategoryTitle, { color: theme.accent }]}>
+                      {category} ({items.length})
+                    </Text>
+                    {items.map(item => {
+                      const checked = !!checkedMap[item.key];
+                      return (
+                        <Pressable
+                          key={item.key}
+                          onPress={() => handleToggleIngredient(item.key)}
+                          style={styles.shoppingItemRow}
+                        >
+                          <View
+                            style={[
+                              styles.checkbox,
+                              { borderColor: theme.border },
+                              checked && { backgroundColor: theme.accent, borderColor: theme.accent },
+                            ]}
+                          >
+                            {checked && <Text style={styles.checkboxMark}>✓</Text>}
+                          </View>
+                          <Text
+                            style={[
+                              styles.shoppingItemText,
+                              { color: checked ? theme.subtext : theme.text },
+                              checked && styles.shoppingItemChecked,
+                            ]}
+                          >
+                            {item.text}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -665,4 +878,73 @@ const styles = StyleSheet.create({
 
   saveBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   saveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+
+  shoppingListBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    paddingVertical: 16,
+    marginTop: 4,
+  },
+  shoppingListBtnIcon: { fontSize: 18 },
+  shoppingListBtnText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  shoppingListBadge: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: 4,
+  },
+  shoppingListBadgeText: { fontSize: 12, fontWeight: '700', color: '#FFFFFF' },
+
+  shoppingListWeek: { fontSize: 12, marginTop: 2 },
+  shoppingListActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  shoppingActionBtn: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  shoppingActionText: { fontSize: 13, fontWeight: '700' },
+
+  shoppingEmptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  shoppingEmptyEmoji: { fontSize: 44, marginBottom: 12 },
+  shoppingEmptyTitle: { fontSize: 17, fontWeight: '700', marginBottom: 6 },
+  shoppingEmptySubtitle: { fontSize: 13, textAlign: 'center' },
+
+  shoppingListScroll: { padding: 20, paddingBottom: 40 },
+  shoppingCategory: { marginBottom: 22 },
+  shoppingCategoryTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  shoppingItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxMark: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  shoppingItemText: { fontSize: 14, flex: 1 },
+  shoppingItemChecked: { textDecorationLine: 'line-through' },
 });

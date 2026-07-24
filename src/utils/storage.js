@@ -9,6 +9,7 @@ const PROGRESS_PROFILE_KEY = '@fitnet_progress_profile';
 const PRS_KEY = '@fitnet_prs';
 const MEAL_PLANS_KEY = '@fitnet_meal_plans';
 const MEAL_REMINDERS_KEY = '@fitnet_meal_reminders';
+const SHOPPING_LISTS_KEY = '@fitnet_shopping_lists';
 
 export async function saveUser(user) {
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -115,5 +116,20 @@ export async function saveMealReminderDay(dateKey, dayReminders) {
 
 export async function loadMealReminders() {
   const raw = await AsyncStorage.getItem(MEAL_REMINDERS_KEY);
+  return raw ? JSON.parse(raw) : {};
+}
+
+// Shopping lists are keyed by the Monday date string ('YYYY-MM-DD') of a given
+// week. Each value is a map of checked ingredient keys -> true (unchecked
+// items are simply absent).
+export async function saveShoppingListWeek(weekKey, checkedMap) {
+  const all = await loadShoppingLists();
+  const updated = { ...all, [weekKey]: checkedMap };
+  await AsyncStorage.setItem(SHOPPING_LISTS_KEY, JSON.stringify(updated));
+  return updated;
+}
+
+export async function loadShoppingLists() {
+  const raw = await AsyncStorage.getItem(SHOPPING_LISTS_KEY);
   return raw ? JSON.parse(raw) : {};
 }
