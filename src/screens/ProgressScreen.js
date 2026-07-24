@@ -12,7 +12,9 @@ import {
   saveProgressProfile,
   loadPRs,
   savePR,
+  loadMealPlans,
 } from '../utils/storage';
+import { CATALOG } from '../data/catalog';
 
 const KG_RANGE = Array.from({ length: 171 }, (_, i) => 30 + i); // 30–200 kg
 const LBS_RANGE = Array.from({ length: 376 }, (_, i) => 66 + i); // 66–441 lb
@@ -46,11 +48,11 @@ const QUESTIONS = [
   },
   {
     key: 'eating',
-    question: 'How did you eat today?',
+    question: 'Did you eat your meal prep today?',
     options: [
-      { key: 'bad', emoji: '🍕', label: 'Not Great' },
-      { key: 'okay', emoji: '😐', label: 'Okay' },
-      { key: 'great', emoji: '🥗', label: 'Very Well' },
+      { key: 'followed', emoji: '✅', label: 'I ate my meal', desc: 'I followed my meal plan' },
+      { key: 'other', emoji: '😐', label: 'I ate something else', desc: "Didn't follow the plan" },
+      { key: 'bad', emoji: '❌', label: "I didn't eat well", desc: 'Skipped or ate badly' },
     ],
   },
   {
@@ -118,6 +120,12 @@ function formatDateKey(date) {
   return `${y}-${m}-${d}`;
 }
 
+function getPlannedMealNames(dayPlan) {
+  if (!dayPlan) return [];
+  const ids = ['breakfast', 'lunch', 'dinner', 'snack'].flatMap(slot => dayPlan[slot] ?? []);
+  return ids.map(id => CATALOG.find(r => r.id === id)?.name).filter(Boolean);
+}
+
 function UnitToggle({ options, value, onChange, theme }) {
   return (
     <View style={[styles.unitToggle, { borderColor: theme.border }]}>
@@ -149,10 +157,15 @@ function SummaryStat({ icon, label, value, theme }) {
   );
 }
 
-function QuestionBlock({ question, options, value, onChange, theme }) {
+function QuestionBlock({ question, hint, options, value, onChange, theme }) {
   return (
     <View style={styles.question}>
       <Text style={[styles.questionLabel, { color: theme.text }]}>{question}</Text>
+      {hint && (
+        <Text style={[styles.questionHint, { color: theme.subtext }]} numberOfLines={2}>
+          {hint}
+        </Text>
+      )}
       <View style={styles.optionList}>
         {options.map(opt => {
           const selected = value === opt.key;
@@ -167,7 +180,12 @@ function QuestionBlock({ question, options, value, onChange, theme }) {
               ]}
             >
               <Text style={styles.optionEmoji}>{opt.emoji}</Text>
-              <Text style={[styles.optionLabel, { color: theme.text }]}>{opt.label}</Text>
+              <View style={styles.optionTextCol}>
+                <Text style={[styles.optionLabel, { color: theme.text }]}>{opt.label}</Text>
+                {opt.desc && (
+                  <Text style={[styles.optionDesc, { color: theme.subtext }]}>{opt.desc}</Text>
+                )}
+              </View>
               {selected && <Text style={[styles.optionCheck, { color: theme.accent }]}>✓</Text>}
             </Pressable>
           );
@@ -244,14 +262,18 @@ export default function ProgressScreen() {
   const [prs, setPrs] = useState({});
   const [prInputs, setPrInputs] = useState({});
 
+  const [plannedMealNames, setPlannedMealNames] = useState([]);
+
   const todayKey = formatDateKey(new Date());
 
   useFocusEffect(
     useCallback(() => {
-      Promise.all([loadProgressProfile(), loadCheckIns(), loadPRs()]).then(([savedProfile, allCheckIns, allPrs]) => {
+      Promise.all([loadProgressProfile(), loadCheckIns(), loadPRs(), loadMealPlans()]).then(
+        ([savedProfile, allCheckIns, allPrs, allMealPlans]) => {
         setCheckIns(allCheckIns);
         setPrs(allPrs);
         setPrInputs({});
+        setPlannedMealNames(getPlannedMealNames(allMealPlans[todayKey]));
 
         if (savedProfile) {
           setProfile(savedProfile);
@@ -494,6 +516,11 @@ export default function ProgressScreen() {
                 <QuestionBlock
                   key={q.key}
                   question={q.question}
+                  hint={
+                    q.key === 'eating' && plannedMealNames.length > 0
+                      ? `Today's plan: ${plannedMealNames.join(', ')}`
+                      : null
+                  }
                   options={q.options}
                   value={answers[q.key]}
                   onChange={(val) => handleAnswer(q.key, val)}
@@ -616,6 +643,7 @@ const styles = StyleSheet.create({
 
   question: { marginTop: 18 },
   questionLabel: { fontSize: 14, fontWeight: '600', marginBottom: 10 },
+  questionHint: { fontSize: 12, marginTop: -6, marginBottom: 10 },
   optionList: { gap: 8 },
   optionRow: {
     flexDirection: 'row',
@@ -627,7 +655,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   optionEmoji: { fontSize: 18 },
+  optionTextCol: { flex: 1 },
   optionLabel: { fontSize: 14, fontWeight: '600', flex: 1 },
+  optionDesc: { fontSize: 12, marginTop: 2 },
   optionCheck: { fontSize: 16, fontWeight: '700' },
 
   summaryQItem: {},
