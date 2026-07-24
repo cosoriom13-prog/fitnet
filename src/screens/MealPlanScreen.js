@@ -95,6 +95,42 @@ function getWeekDays(date) {
   return Array.from({ length: 7 }, (_, i) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i));
 }
 
+// Simple Monday-anchored week-of-year number (not full ISO 8601 year-boundary
+// handling — good enough for a friendly "Week X of YYYY" label).
+function getWeekOfYear(monday) {
+  const jan1 = new Date(monday.getFullYear(), 0, 1);
+  const jan1Weekday = jan1.getDay();
+  const offsetToFirstMonday = jan1Weekday === 0 ? -6 : 1 - jan1Weekday;
+  const firstMonday = new Date(monday.getFullYear(), 0, 1 + offsetToFirstMonday);
+  const diffDays = Math.round((monday - firstMonday) / (24 * 60 * 60 * 1000));
+  return Math.floor(diffDays / 7) + 1;
+}
+
+// Returns an array of weeks (each an array of 7 Dates, Monday–Sunday) that
+// together cover every day shown in a month-grid for `viewMonth`.
+function getMonthWeeks(viewMonth) {
+  const year = viewMonth.getFullYear();
+  const month = viewMonth.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const lastOfMonth = new Date(year, month + 1, 0);
+
+  const firstWeekday = firstOfMonth.getDay();
+  const startOffset = firstWeekday === 0 ? -6 : 1 - firstWeekday;
+  const gridStart = new Date(year, month, 1 + startOffset);
+
+  const lastWeekday = lastOfMonth.getDay();
+  const endOffset = lastWeekday === 0 ? 0 : 7 - lastWeekday;
+  const gridEnd = new Date(year, month, lastOfMonth.getDate() + endOffset);
+
+  const weeks = [];
+  let cursor = gridStart;
+  while (cursor <= gridEnd) {
+    weeks.push(Array.from({ length: 7 }, (_, i) => new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + i)));
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 7);
+  }
+  return weeks;
+}
+
 function to24Hour(hour12, period) {
   const hour = hour12 % 12;
   return period === 'PM' ? hour + 12 : hour;
@@ -116,6 +152,11 @@ function formatDateKey(date) {
 function dayHasMeals(dayPlan) {
   if (!dayPlan) return false;
   return MEAL_SLOTS.some(slot => (dayPlan[slot.key]?.length ?? 0) > 0);
+}
+
+function countPlannedMeals(dayPlan) {
+  if (!dayPlan) return 0;
+  return MEAL_SLOTS.reduce((sum, slot) => sum + (dayPlan[slot.key]?.length ?? 0), 0);
 }
 
 function CalendarDay({ cell, onPress, theme }) {
@@ -145,6 +186,61 @@ function MacroStat({ label, value, unit, theme }) {
       <Text style={[styles.macroStatValue, { color: theme.text }]}>{value}{unit}</Text>
       <Text style={[styles.macroStatLabel, { color: theme.subtext }]}>{label}</Text>
     </View>
+  );
+}
+
+function ViewModeToggle({ value, onChange, theme }) {
+  return (
+    <View style={[styles.viewModeToggle, { borderColor: theme.border }]}>
+      {[
+        { key: 'day', label: 'Day' },
+        { key: 'week', label: 'Week' },
+      ].map(opt => {
+        const selected = value === opt.key;
+        return (
+          <Pressable
+            key={opt.key}
+            onPress={() => onChange(opt.key)}
+            style={[styles.viewModeOption, selected && { backgroundColor: theme.accent }]}
+          >
+            <Text style={[styles.viewModeText, { color: selected ? '#FFFFFF' : theme.muted }]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function WeekDayCard({ date, mealCount, isSelected, isToday, onPress, theme }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.weekCard,
+        { backgroundColor: theme.card, borderColor: theme.border },
+        isSelected && { borderColor: theme.accent, backgroundColor: theme.accentDim },
+      ]}
+    >
+      <Text style={[styles.weekCardDayName, { color: isSelected ? theme.accent : theme.subtext }]}>
+        {date.toLocaleDateString('en-US', { weekday: 'short' })}
+      </Text>
+      <View
+        style={[
+          styles.weekCardDateCircle,
+          isToday && !isSelected && { borderWidth: 1.5, borderColor: theme.accent },
+          isSelected && { backgroundColor: theme.accent },
+        ]}
+      >
+        <Text style={[styles.weekCardDateNumber, { color: isSelected ? '#FFFFFF' : theme.text }]}>
+          {date.getDate()}
+        </Text>
+      </View>
+      <Text style={[styles.weekCardMealCount, { color: isSelected ? theme.accent : theme.subtext }]}>
+        {mealCount === 0 ? 'No meals' : `${mealCount} meal${mealCount !== 1 ? 's' : ''}`}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -210,6 +306,7 @@ export default function MealPlanScreen() {
   const [user, setUser] = useState(null);
   const [mealPlans, setMealPlans] = useState({});
   const [reminders, setReminders] = useState({});
+  const [viewMode, setViewMode] = useState('day');
   const [viewMonth, setViewMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -222,6 +319,11 @@ export default function MealPlanScreen() {
   const [pickerPeriod, setPickerPeriod] = useState('AM');
   const [shoppingLists, setShoppingLists] = useState({});
   const [shoppingListVisible, setShoppingListVisible] = useState(false);
+  const [weekPickerVisible, setWeekPickerVisible] = useState(false);
+  const [weekPickerMonth, setWeekPickerMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
 
   useFocusEffect(
     useCallback(() => {
@@ -270,6 +372,43 @@ export default function MealPlanScreen() {
   const handleSelectDay = (cell) => {
     if (!cell) return;
     setSelectedDate(new Date(viewMonth.getFullYear(), viewMonth.getMonth(), cell.day));
+  };
+
+  const shiftWeek = (deltaDays) => {
+    const next = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + deltaDays);
+    setSelectedDate(next);
+    setViewMonth(new Date(next.getFullYear(), next.getMonth(), 1));
+  };
+  const goPrevWeek = () => shiftWeek(-7);
+  const goNextWeek = () => shiftWeek(7);
+
+  const openWeekPicker = () => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const baseMonth = selectedDate.getFullYear() === currentYear
+      ? new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
+      : new Date(currentYear, now.getMonth(), 1);
+    setWeekPickerMonth(baseMonth);
+    setWeekPickerVisible(true);
+  };
+
+  const isPickerPrevMonthDisabled = weekPickerMonth.getMonth() === 0;
+  const isPickerNextMonthDisabled = weekPickerMonth.getMonth() === 11;
+
+  const goPrevPickerMonth = () => {
+    if (isPickerPrevMonthDisabled) return;
+    setWeekPickerMonth(v => new Date(v.getFullYear(), v.getMonth() - 1, 1));
+  };
+  const goNextPickerMonth = () => {
+    if (isPickerNextMonthDisabled) return;
+    setWeekPickerMonth(v => new Date(v.getFullYear(), v.getMonth() + 1, 1));
+  };
+
+  const handleSelectWeekRow = (days) => {
+    const monday = days[0];
+    setSelectedDate(monday);
+    setViewMonth(new Date(monday.getFullYear(), monday.getMonth(), 1));
+    setWeekPickerVisible(false);
   };
 
   const resolveRecipes = (ids) =>
@@ -388,10 +527,16 @@ export default function MealPlanScreen() {
     );
   }, [selectedPlan]);
 
-  const weekDays = useMemo(() => getWeekDays(new Date()), []);
+  const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
   const weekKey = formatDateKey(weekDays[0]);
   const weekLabel = `${weekDays[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekDays[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  const weekNumber = getWeekOfYear(weekDays[0]);
+  const weekYear = weekDays[0].getFullYear();
+  const thisWeekKey = formatDateKey(getWeekDays(new Date())[0]);
   const checkedMap = shoppingLists[weekKey] ?? {};
+
+  const monthWeeks = useMemo(() => getMonthWeeks(weekPickerMonth), [weekPickerMonth]);
+  const pickerMonthLabel = weekPickerMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   const groupedIngredients = useMemo(() => {
     const seen = new Map();
@@ -469,32 +614,78 @@ export default function MealPlanScreen() {
           Plan your breakfast, lunch, dinner, and snacks.
         </Text>
 
-        {/* CALENDAR */}
-        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={styles.calendarHeader}>
-            <Pressable onPress={goPrevMonth} hitSlop={10} style={styles.calendarNavBtn}>
-              <Text style={[styles.calendarNavIcon, { color: theme.accent }]}>‹</Text>
-            </Pressable>
-            <Text style={[styles.calendarMonthLabel, { color: theme.text }]}>{monthLabel}</Text>
-            <Pressable onPress={goNextMonth} hitSlop={10} style={styles.calendarNavBtn}>
-              <Text style={[styles.calendarNavIcon, { color: theme.accent }]}>›</Text>
-            </Pressable>
-          </View>
+        <ViewModeToggle value={viewMode} onChange={setViewMode} theme={theme} />
 
-          <View style={styles.weekdayRow}>
-            {WEEKDAY_LABELS.map((label, i) => (
-              <View key={i} style={styles.weekdayCell}>
-                <Text style={[styles.weekdayText, { color: theme.subtext }]}>{label}</Text>
-              </View>
-            ))}
-          </View>
+        {viewMode === 'day' ? (
+          /* CALENDAR */
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.calendarHeader}>
+              <Pressable onPress={goPrevMonth} hitSlop={10} style={styles.calendarNavBtn}>
+                <Text style={[styles.calendarNavIcon, { color: theme.accent }]}>‹</Text>
+              </Pressable>
+              <Text style={[styles.calendarMonthLabel, { color: theme.text }]}>{monthLabel}</Text>
+              <Pressable onPress={goNextMonth} hitSlop={10} style={styles.calendarNavBtn}>
+                <Text style={[styles.calendarNavIcon, { color: theme.accent }]}>›</Text>
+              </Pressable>
+            </View>
 
-          <View style={styles.calendarGrid}>
-            {calendarCells.map((cell, i) => (
-              <CalendarDay key={cell?.dateKey ?? `blank-${i}`} cell={cell} onPress={() => handleSelectDay(cell)} theme={theme} />
-            ))}
+            <View style={styles.weekdayRow}>
+              {WEEKDAY_LABELS.map((label, i) => (
+                <View key={i} style={styles.weekdayCell}>
+                  <Text style={[styles.weekdayText, { color: theme.subtext }]}>{label}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.calendarGrid}>
+              {calendarCells.map((cell, i) => (
+                <CalendarDay key={cell?.dateKey ?? `blank-${i}`} cell={cell} onPress={() => handleSelectDay(cell)} theme={theme} />
+              ))}
+            </View>
           </View>
-        </View>
+        ) : (
+          /* WEEK OVERVIEW */
+          <>
+            <View style={styles.calendarHeader}>
+              <Pressable onPress={goPrevWeek} hitSlop={10} style={styles.calendarNavBtn}>
+                <Text style={[styles.calendarNavIcon, { color: theme.accent }]}>‹</Text>
+              </Pressable>
+              <Pressable onPress={openWeekPicker} hitSlop={6}>
+                <Text style={[styles.calendarMonthLabel, { color: theme.text }]}>
+                  Week {weekNumber} of {weekYear}
+                </Text>
+              </Pressable>
+              <Pressable onPress={goNextWeek} hitSlop={10} style={styles.calendarNavBtn}>
+                <Text style={[styles.calendarNavIcon, { color: theme.accent }]}>›</Text>
+              </Pressable>
+            </View>
+            <Pressable onPress={openWeekPicker} hitSlop={6} style={styles.weekRangeRow}>
+              <Text style={[styles.weekRangeLabel, { color: theme.accent }]}>{weekLabel}</Text>
+              <Text style={[styles.weekRangeChevron, { color: theme.accent }]}>▾</Text>
+            </Pressable>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.weekRow}
+              style={styles.weekRowScroll}
+            >
+              {weekDays.map(date => {
+                const dateKey = formatDateKey(date);
+                return (
+                  <WeekDayCard
+                    key={dateKey}
+                    date={date}
+                    mealCount={countPlannedMeals(mealPlans[dateKey])}
+                    isSelected={dateKey === selectedDateKey}
+                    isToday={dateKey === formatDateKey(new Date())}
+                    onPress={() => setSelectedDate(date)}
+                    theme={theme}
+                  />
+                );
+              })}
+            </ScrollView>
+          </>
+        )}
 
         <Text style={[styles.selectedDateLabel, { color: theme.text }]}>{selectedDateLabel}</Text>
 
@@ -732,6 +923,88 @@ export default function MealPlanScreen() {
           )}
         </SafeAreaView>
       </Modal>
+
+      {/* WEEK PICKER POPOVER */}
+      <Modal
+        visible={weekPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setWeekPickerVisible(false)}
+      >
+        <Pressable style={styles.popoverBackdrop} onPress={() => setWeekPickerVisible(false)}>
+          <Pressable
+            style={[styles.popoverCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.calendarHeader}>
+              <Pressable
+                onPress={goPrevPickerMonth}
+                disabled={isPickerPrevMonthDisabled}
+                hitSlop={10}
+                style={styles.calendarNavBtn}
+              >
+                <Text style={[styles.calendarNavIcon, { color: isPickerPrevMonthDisabled ? theme.border : theme.accent }]}>
+                  ‹
+                </Text>
+              </Pressable>
+              <Text style={[styles.calendarMonthLabel, { color: theme.text }]}>{pickerMonthLabel}</Text>
+              <Pressable
+                onPress={goNextPickerMonth}
+                disabled={isPickerNextMonthDisabled}
+                hitSlop={10}
+                style={styles.calendarNavBtn}
+              >
+                <Text style={[styles.calendarNavIcon, { color: isPickerNextMonthDisabled ? theme.border : theme.accent }]}>
+                  ›
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.weekdayRow}>
+              {WEEKDAY_LABELS.map((label, i) => (
+                <View key={i} style={styles.weekdayCell}>
+                  <Text style={[styles.weekdayText, { color: theme.subtext }]}>{label}</Text>
+                </View>
+              ))}
+            </View>
+
+            {monthWeeks.map(days => {
+              const rowKey = formatDateKey(days[0]);
+              const isCurrentWeek = rowKey === thisWeekKey;
+              const isSelectedWeekRow = rowKey === weekKey;
+              return (
+                <Pressable
+                  key={rowKey}
+                  onPress={() => handleSelectWeekRow(days)}
+                  style={({ pressed }) => [
+                    styles.weekPickerRow,
+                    isCurrentWeek && !isSelectedWeekRow && { borderWidth: 1.5, borderColor: theme.accent },
+                    isSelectedWeekRow && { backgroundColor: theme.accent },
+                    pressed && !isSelectedWeekRow && { backgroundColor: theme.accentDim },
+                  ]}
+                >
+                  {days.map(d => {
+                    const inMonth = d.getMonth() === weekPickerMonth.getMonth();
+                    return (
+                      <View key={formatDateKey(d)} style={styles.weekPickerDayCell}>
+                        <Text
+                          style={[
+                            styles.weekPickerDayText,
+                            { color: isSelectedWeekRow ? '#FFFFFF' : theme.text },
+                            !inMonth && !isSelectedWeekRow && { opacity: 0.35 },
+                          ]}
+                        >
+                          {d.getDate()}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -879,6 +1152,48 @@ const styles = StyleSheet.create({
   saveBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   saveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
 
+  viewModeToggle: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  viewModeOption: { paddingHorizontal: 20, paddingVertical: 8 },
+  viewModeText: { fontSize: 13, fontWeight: '700' },
+
+  weekRangeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginBottom: 14,
+    marginLeft: 4,
+  },
+  weekRangeLabel: { fontSize: 13, fontWeight: '700' },
+  weekRangeChevron: { fontSize: 10 },
+  weekRowScroll: { marginBottom: 20 },
+  weekRow: { gap: 10, paddingRight: 4 },
+  weekCard: {
+    width: 72,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    gap: 6,
+  },
+  weekCardDayName: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
+  weekCardDateCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekCardDateNumber: { fontSize: 15, fontWeight: '700' },
+  weekCardMealCount: { fontSize: 10, fontWeight: '600', textAlign: 'center' },
+
   shoppingListBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -947,4 +1262,27 @@ const styles = StyleSheet.create({
   checkboxMark: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
   shoppingItemText: { fontSize: 14, flex: 1 },
   shoppingItemChecked: { textDecorationLine: 'line-through' },
+
+  popoverBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  popoverCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+  },
+  weekPickerRow: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    paddingVertical: 8,
+    marginBottom: 2,
+  },
+  weekPickerDayCell: { width: `${100 / 7}%`, alignItems: 'center' },
+  weekPickerDayText: { fontSize: 14, fontWeight: '600' },
 });
